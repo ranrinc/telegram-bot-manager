@@ -58,6 +58,7 @@ class BotManager
      * @throws \TelegramBot\TelegramBotManager\Exception\InvalidParamsException
      * @throws \TelegramBot\TelegramBotManager\Exception\InvalidActionException
      * @throws \Longman\TelegramBot\Exception\TelegramException
+     * @throws \Exception
      */
     public function __construct(array $params)
     {
@@ -81,7 +82,7 @@ class BotManager
      */
     public static function inTest(): bool
     {
-        return defined('PHPUNIT_TEST') && PHPUNIT_TEST === true;
+        return \defined('PHPUNIT_TEST') && PHPUNIT_TEST === true;
     }
 
     /**
@@ -131,7 +132,8 @@ class BotManager
 
         if ($this->action->isAction('webhookinfo')) {
             $webhookinfo = Request::getWebhookInfo();
-            print_r($webhookinfo->getResult() ?: $webhookinfo->printError());
+            /** @noinspection ForgottenDebugOutputInspection */
+            print_r($webhookinfo->getResult() ?: $webhookinfo->printError(true));
             return $this;
         }
         if ($this->action->isAction(['set', 'unset', 'reset'])) {
@@ -218,7 +220,7 @@ class BotManager
             ], function ($v, $k) {
                 if ($k === 'allowed_updates') {
                     // Special case for allowed_updates, which can be an empty array.
-                    return is_array($v);
+                    return \is_array($v);
                 }
                 return !empty($v);
             }, ARRAY_FILTER_USE_BOTH);
@@ -276,7 +278,6 @@ class BotManager
     {
         $simple_extras = [
             'admins'         => 'enableAdmins',
-            'mysql'          => 'enableMySql',
             'commands.paths' => 'addCommandsPaths',
             'custom_input'   => 'setCustomInput',
             'paths.download' => 'setDownloadPath',
@@ -288,6 +289,15 @@ class BotManager
             if (null !== $param) {
                 $this->telegram->$method($param);
             }
+        }
+
+        // Database.
+        if ($mysql_config = $this->params->getBotParam('mysql', [])) {
+            $this->telegram->enableMySql(
+                $mysql_config,
+                $mysql_config['table_prefix'] ?? null,
+                $mysql_config['encoding'] ?? 'utf8mb4'
+            );
         }
 
         // Custom command configs.
@@ -338,7 +348,6 @@ class BotManager
      * Handle the request, which calls either the Webhook or getUpdates method respectively.
      *
      * @return \TelegramBot\TelegramBotManager\BotManager
-     * @throws \TelegramBot\TelegramBotManager\Exception\InvalidAccessException
      * @throws \Longman\TelegramBot\Exception\TelegramException
      */
     public function handleRequest(): self
@@ -386,7 +395,7 @@ class BotManager
             return 0;
         }
 
-        if (is_string($loop_time) && '' === trim($loop_time)) {
+        if (\is_string($loop_time) && '' === trim($loop_time)) {
             return 604800; // Default to 7 days.
         }
 
@@ -402,7 +411,7 @@ class BotManager
     {
         $interval_time = $this->params->getScriptParam('i');
 
-        if (null === $interval_time || (is_string($interval_time) && '' === trim($interval_time))) {
+        if (null === $interval_time || (\is_string($interval_time) && '' === trim($interval_time))) {
             return 2;
         }
 
@@ -461,7 +470,7 @@ class BotManager
 
         // Check if the user has set a custom callback for handling the response.
         if ($this->custom_get_updates_callback !== null) {
-            $this->handleOutput(call_user_func($this->custom_get_updates_callback, $get_updates_response));
+            $this->handleOutput(\call_user_func($this->custom_get_updates_callback, $get_updates_response));
         } else {
             $this->handleOutput($this->defaultGetUpdatesCallback($get_updates_response));
         }
@@ -478,6 +487,14 @@ class BotManager
      */
     protected function defaultGetUpdatesCallback($get_updates_response): string
     {
+        if (!$get_updates_response->isOk()) {
+            return sprintf(
+                '%s - Failed to fetch updates' . PHP_EOL . '%s',
+                date('Y-m-d H:i:s'),
+                $get_updates_response->printError(true)
+            );
+        }
+
         /** @var Entities\Update[] $results */
         $results = array_filter((array) $get_updates_response->getResult());
 
@@ -517,7 +534,6 @@ class BotManager
      *
      * @return \TelegramBot\TelegramBotManager\BotManager
      * @throws \Longman\TelegramBot\Exception\TelegramException
-     * @throws \TelegramBot\TelegramBotManager\Exception\InvalidAccessException
      */
     public function handleWebhook(): self
     {
